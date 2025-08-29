@@ -186,6 +186,11 @@ class Resize(object):
                     sample["depth"], (width, height), interpolation=cv2.INTER_NEAREST
                 )
 
+            if "laser" in sample:
+                sample["laser"] = cv2.resize(
+                    sample["laser"], (width, height), interpolation=cv2.INTER_NEAREST
+                )
+
             if "semseg_mask" in sample:
                 # sample["semseg_mask"] = cv2.resize(
                 #     sample["semseg_mask"], (width, height), interpolation=cv2.INTER_NEAREST
