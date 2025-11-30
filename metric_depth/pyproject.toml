@@ -3,11 +3,21 @@ name = "metric-depth"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "matplotlib>=3.10.5",
-    "open3d>=0.19.0",
-    "opencv-python>=4.12.0.88",
-    "torch>=2.8.0",
-    "torchvision>=0.23.0",
+    "dynaconf>=3.2.12",
+    "fishsense-core",
+    "gradio>=4.29.0",
+    "gradio-imageslider>=0.0.20",
+    "matplotlib>=3.10.7",
+    "opencv-python>=4.11.0.86",
+    "pandas>=2.3.3",
+    "synology-api>=0.8.1",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
+    "validators>=0.35.0",
 ]
+
+[tool.uv.sources]
+fishsense-core = { git = "https://github.com/UCSD-E4E/fishsense-core.git" }

@@ -11,6 +11,11 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
+
+import torch.distributed as dist
+
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 import torch.nn.functional as F
 # from torch.utils.tensorboard import SummaryWriter
@@ -25,6 +30,12 @@ from util.metric import eval_depth
 from util.utils import init_log
 
 
+import torch.multiprocessing as mp
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+import os
+
 parser = argparse.ArgumentParser(description='Depth Anything V2 for Laser Prediction')
 
 parser.add_argument('--encoder', default='vitl', choices=['vits', 'vitb', 'vitl', 'vitg'])
@@ -33,12 +44,33 @@ parser.add_argument('--img-size', default=518, type=int)
 parser.add_argument('--min-depth', default=0.001, type=float)
 parser.add_argument('--max-depth', default=20, type=float)
 parser.add_argument('--epochs', default=3, type=int)
-parser.add_argument('--bs', default=1, type=int)
+parser.add_argument('--bs', default=5, type=int)
 parser.add_argument('--lr', default=0.000005, type=float)
 parser.add_argument('--pretrained-from', default='checkpoints/depth_anything_v2_metric_hypersim_vitl.pth', type=str)
 parser.add_argument('--save-path', default='checkpoints',type=str)
 
+def ddp_setup(rank: int, world_size: int):
+   """
+   Args:
+       rank: Unique identifier of each process
+      world_size: Total number of processes
+   """
+   os.environ['NCCL_DEBUG'] = 'INFO'
+   os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+   os.environ["NCCL_P2P_DISABLE"] = "1"
+   os.environ["MASTER_ADDR"] = "127.0.0.1"
+   os.environ["MASTER_PORT"] = "8000"
+   torch.cuda.set_device(rank)
+   print(f"DDP setup for rank {rank} and world size {world_size}")
+   init_process_group(backend="nccl", init_method="env://", rank=rank, world_size=world_size)
+
 def main():
+    # rank = int(os.environ["RANK"])
+    # world_size = int(os.environ['WORLD_SIZE'])
+    # print("RANK and WORLD_SIZE:", rank, world_size)
+    # ddp_setup(rank, world_size)
+    # print(f"Running DDP on rank {rank}.")
+
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -52,15 +84,15 @@ def main():
     
     size = (args.img_size, args.img_size)
 
-    trainset = Fish('dataset/splits/fish/train.txt', 'train', size=size)
+    trainset = Fish('dataset/splits/fish/train.csv', 'train', size=size)
 
     # trainsampler = torch.utils.data.distributed.DistributedSampler(trainset)
-    trainloader = DataLoader(trainset, batch_size=args.bs, pin_memory=True, num_workers=4, drop_last=True)
+    trainloader = DataLoader(trainset, batch_size=args.bs, pin_memory=True, num_workers=4, drop_last=True) #, sampler=trainsampler)
     
-    valset = Fish('dataset/splits/fish/val.txt', 'val', size=size)
+    valset = Fish('dataset/splits/fish/val.csv', 'val', size=size)
 
     # valsampler = torch.utils.data.distributed.DistributedSampler(valset)
-    valloader = DataLoader(valset, batch_size=1, pin_memory=True, num_workers=4, drop_last=True)
+    valloader = DataLoader(valset, batch_size=args.bs, pin_memory=True, num_workers=4, drop_last=True) #, sampler=valsampler)
     
     model_configs = {
         'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
@@ -72,7 +104,7 @@ def main():
     
     if args.pretrained_from:
         model.load_state_dict({k: v for k, v in torch.load(args.pretrained_from, map_location='cpu').items() if 'pretrained' in k}, strict=False)
-    
+
     model = model.to(device)
 
     criterion = torch.nn.CrossEntropyLoss()
@@ -200,6 +232,7 @@ def main():
             'epoch': epoch,
             'previous_best': previous_best,
         }
+        # if rank == 0:
         torch.save(checkpoint, os.path.join(args.save_path, 'median.pth'))
     # print('Distance:', results['distance'], 'Samples:', len(valloader))
     end_eval = time.perf_counter()
